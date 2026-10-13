@@ -1,19 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument-serif",
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-});
 
-const title = "Spoon Talk: plan your day in spoons, out loud";
+const title = "Spoon Talk: plan your day in spoons. Just talk.";
 const description =
-  "Talk through your day with a voice agent built on ElevenLabs. It plans it in spoons, suggests rest and warns you about next-day crashes. Made by Juno.";
+  "A voice agent built on ElevenLabs Agents that budgets your energy in spoons (sleep, barometric pressure, the last two days), prices each task with uncertainty and warns you before a delayed crash. Made by Juno.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
@@ -32,7 +27,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} h-full antialiased`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}>
       <body className="relative min-h-full">{children}</body>
     </html>
   );

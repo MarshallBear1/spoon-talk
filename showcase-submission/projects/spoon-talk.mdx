@@ -1,6 +1,6 @@
 ---
 title: Spoon Talk
-description: Plan your day in spoons, out loud. A voice agent for chronic illness that prices activities, adds rest and warns about next-day crashes.
+description: Plan your day in spoons. Just talk. A voice agent for chronic illness with a live, explainable pacing model and next-day crash warnings.
 authorIds:
   - marshall-gould
 categories:
@@ -24,18 +24,20 @@ It was built by [Juno](https://junocompanion.com), a companion app for people li
 
 ## Key Features
 
-- **Voice-driven generative UI**: five client tools (`set_energy`, `add_activity`, `remove_activity`, `suggest_rest`, `flag_crash_risk`) update the plan live while the agent speaks.
-- **Real numbers, always**: every tool returns the live totals, so the agent never does the maths in its head.
-- **Next-day crash warnings**: flags delayed post-exertional malaise risk and suggests one concrete trade-off.
-- **Audio-reactive orb**: driven by the SDK's input and output volume.
-- **Demo mode with no keys**: a scripted conversation drives the exact same reducer, so anyone can try it.
+- **Voice-driven generative UI**: eight client tools (`set_energy`, `set_sleep`, `log_previous_day`, `set_body_signals`, `add_activity`, `remove_activity`, `suggest_rest`, `flag_crash_risk`) update the plan live while the agent speaks.
+- **An explainable pacing model**: budget B = E·k·Πmᵢ, with bounded multipliers for sleep, live barometric pressure change (Open-Meteo), heat and the last two days' overspend (the PEM lag). Each factor appears as a chip showing its spoon contribution.
+- **Bayesian activity costs**: a Normal prior per activity type is updated with the spoken estimate, and each card shows μ ± σ. The plan shows P(over budget).
+- **Next-day crash risk**: a logistic model of overspend, the lagged overspends, sleep debt and falling pressure, shown as a % with its top drivers.
+- **The maths on screen**: KaTeX equations filled in with the live numbers, plus hover breakdowns. The model has unit tests.
+- **ElevenLabs UI**: the WebGL Orb (warms when crash risk rises), Live Waveform, Shimmering Text, Conversation and Message.
+- **Demo mode with no keys**: a scripted conversation drives the same model, so anyone can try it.
 - **Private by default**: the server mints a short-lived WebRTC conversation token, and the API key never reaches the browser.
 
 ## How It Works
 
-- `@elevenlabs/react` `useConversation` connects to a private ElevenLabs Agent over WebRTC, using a token from a Next.js route handler.
-- Client tools are registered with `useConversationClientTool`. Each tool sends an action to one pure reducer (the spoon model) and returns a text summary to the agent.
-- The budget is energy × 2.4, inspired by Juno's [pacing white paper](https://junocompanion.com/juno_pacing_whitepaper.pdf) (a development prototype, not clinically validated). Rests give spoons back. Going over budget shows spoons "borrowed from tomorrow".
+- `@elevenlabs/react` `useConversation` connects to a private ElevenLabs Agent over WebRTC. Client tools registered with `useConversationClientTool` send actions to one pure reducer and return a model readout, so the agent speaks real numbers and reasons ("pressure's dropped 9 hPa since yesterday, so I've trimmed your budget a little").
+- The local weather reaches the agent through `sendContextualUpdate`.
+- The model is inspired by Juno's [pacing white paper](https://junocompanion.com/juno_pacing_whitepaper.pdf), a development prototype that is not clinically validated. Its coefficients are illustrative defaults.
 - `scripts/create-agent.ts` creates the client tools and the agent (system prompt, first message, voice) through the ElevenLabs API.
 
 ## Technologies Used
@@ -43,7 +45,9 @@ It was built by [Juno](https://junocompanion.com), a companion app for people li
 - ElevenLabs Agents (Conversational AI) with client tools
 - ElevenLabs TTS (Flash v2)
 - `@elevenlabs/react` and `@elevenlabs/elevenlabs-js`
-- Next.js (App Router), TypeScript, Tailwind CSS, Motion
+- ElevenLabs UI (Orb, Live Waveform, Shimmering Text, Conversation, Message)
+- shadcn/ui, Magic UI, Motion, KaTeX, Open-Meteo
+- Next.js (App Router), TypeScript, Tailwind CSS, Vitest
 
 ## Getting Started
 

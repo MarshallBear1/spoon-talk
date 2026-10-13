@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored registry components (shadcn/ui, ElevenLabs UI, Magic UI) are kept
+    // byte-for-byte as installed so they can be re-pulled; they predate the React
+    // Compiler lint rules.
+    "src/components/ui/**",
   ]),
 ]);
 

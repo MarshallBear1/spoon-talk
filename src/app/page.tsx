@@ -31,7 +31,7 @@ export default function Home() {
   const liveAvailable = Boolean(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_AGENT_ID);
 
   return (
-    <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col px-4 sm:px-8">
+    <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col overflow-x-clip px-4 sm:px-8">
       <header className="flex items-center justify-between py-5">
         <div className="flex items-center gap-2.5">
           <Logo />
@@ -46,7 +46,7 @@ export default function Home() {
         </a>
       </header>
 
-      <main className="flex flex-1 items-center py-6 lg:py-10">
+      <main className="flex flex-1 flex-col pt-6 pb-10 sm:pt-10">
         <SpoonTalk liveAvailable={liveAvailable} />
       </main>
 
@@ -66,7 +66,8 @@ export default function Home() {
           </a>
         </nav>
         <p className="max-w-md leading-5">
-          Budget = energy × 2.4, inspired by Juno&apos;s pacing research (a development prototype). Not medical advice.
+          The model is inspired by Juno&apos;s pacing white paper (a development prototype, not clinically validated).
+          Coefficients are illustrative. Not medical advice.
         </p>
       </footer>
     </div>

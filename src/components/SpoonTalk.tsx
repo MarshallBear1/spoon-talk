@@ -6,32 +6,58 @@ import {
   useConversationClientTool,
   type MessagePayload,
 } from "@elevenlabs/react";
-import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Mic, Play, Square } from "lucide-react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
+import { Button } from "@/components/ui/button";
+import { LiveWaveform } from "@/components/ui/live-waveform";
+import type { AgentState } from "@/components/ui/orb";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
+import { ShimmeringText } from "@/components/ui/shimmering-text";
 import { DEMO_SCRIPT, speakMs } from "@/lib/demo-script";
 import {
   dayReducer,
+  derive,
   describe,
   initialDay,
   num,
+  optNum,
+  toPhase,
+  toQuality,
   toSlot,
-  type CrashLevel,
   type DayAction,
   type DayState,
 } from "@/lib/spoons";
+import { cn } from "@/lib/utils";
+import { fetchWeather, locate } from "@/lib/weather";
 import { DayPlan } from "./DayPlan";
-import { Orb, type OrbState } from "./Orb";
+import { MathsSection } from "./MathsSection";
+
+// The ElevenLabs UI orb is WebGL (three.js / react-three-fiber): client only.
+const Orb = dynamic(() => import("@/components/ui/orb").then((m) => m.Orb), {
+  ssr: false,
+  loading: () => <div className="size-full rounded-full bg-[radial-gradient(circle,rgba(180,169,255,0.25),transparent_65%)]" />,
+});
 
 type Mode = "idle" | "demo" | "demo-done" | "connecting" | "live";
 
 /** Tool arguments come from an LLM, so every field is treated as untrusted and coerced. */
 type Tools = {
-  set_energy: (p: { level?: unknown; sleep_hours?: unknown }) => string;
+  set_energy: (p: { level?: unknown }) => string;
+  set_sleep: (p: { hours?: unknown; quality?: unknown }) => string;
+  log_previous_day: (p: { days_ago?: unknown; spent?: unknown; budget?: unknown }) => string;
+  set_body_signals: (p: { resting_hr_delta?: unknown; hrv_delta_pct?: unknown; cycle_phase?: unknown; stress?: unknown }) => string;
   add_activity: (p: { name?: unknown; spoons?: unknown; when?: unknown; note?: unknown }) => string;
   remove_activity: (p: { name?: unknown }) => string;
   suggest_rest: (p: { after?: unknown; minutes?: unknown }) => string;
-  flag_crash_risk: (p: { level?: unknown; reason?: unknown }) => string;
+  flag_crash_risk: (p: { reason?: unknown }) => string;
 };
+
+// Soft pastels: in dark mode the orb inverts, so these read as glowing lavender / mint (or peach on crash risk).
+const CALM: [string, string] = ["#DCD6FF", "#AEEBE1"];
+const WARM: [string, string] = ["#FFD9BF", "#FFB9C2"];
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -42,18 +68,26 @@ const sleep = (ms: number, signal: AbortSignal) =>
     });
   });
 
-const toolLabel = (action: DayAction): string => {
-  switch (action.type) {
+const toolLabel = (a: DayAction): string => {
+  switch (a.type) {
     case "set_energy":
-      return `set_energy(level: ${action.level}${action.sleepHours ? `, sleep_hours: ${action.sleepHours}` : ""})`;
+      return `set_energy(${a.level})`;
+    case "set_sleep":
+      return `set_sleep(${a.hours}h, "${a.quality}")`;
+    case "log_previous_day":
+      return `log_previous_day(${a.daysAgo}, spent ${a.record.spent}, budget ${a.record.budget})`;
+    case "set_body_signals":
+      return "set_body_signals(…)";
+    case "set_weather":
+      return `open-meteo: ΔP₂₄ ${a.weather.delta24} hPa, ${Math.round(a.weather.tempC)}°C`;
     case "add_activity":
-      return `add_activity("${action.name}", ${action.spoons}, "${action.when}")`;
+      return `add_activity("${a.name}", ${a.spoons}, "${a.when}")`;
     case "remove_activity":
-      return `remove_activity("${action.name}")`;
+      return `remove_activity("${a.name}")`;
     case "suggest_rest":
-      return `suggest_rest(after: "${action.after}", ${action.minutes} min)`;
+      return `suggest_rest(after "${a.after}", ${a.minutes} min)`;
     case "flag_crash_risk":
-      return `flag_crash_risk("${action.level}")`;
+      return "flag_crash_risk(…)";
     default:
       return "";
   }
@@ -66,25 +100,28 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
   const [demoSpeaker, setSpeaker] = useState<"agent" | "user" | null>(null);
   const [caption, setCaption] = useState<{ role: "agent" | "user"; text: string; words: number } | null>(null);
   const [lastTool, setLastTool] = useState<{ id: number; label: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const planRef = useRef<HTMLDivElement>(null);
 
-  const apply = useCallback((action: DayAction) => {
+  const apply = useCallback((action: DayAction, quiet = false) => {
     const next = dayReducer(dayRef.current, action);
     dayRef.current = next;
     setDay(next);
     const label = toolLabel(action);
-    if (label) setLastTool({ id: Date.now() + Math.random(), label });
+    if (label && !quiet) setLastTool({ id: Date.now() + Math.random(), label });
     return next;
   }, []);
 
   const resetDay = useCallback(() => {
-    const fresh = initialDay();
+    const fresh = initialDay(dayRef.current.weather);
     dayRef.current = fresh;
     setDay(fresh);
     setCaption(null);
     setLastTool(null);
   }, []);
+
+  const d = useMemo(() => derive(day), [day]);
 
   /* ---------------- Live: ElevenLabs Agent with client tools ---------------- */
 
@@ -92,58 +129,80 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
     onMessage: (m: MessagePayload) => {
       const role = m.role === "user" ? "user" : "agent";
       if (!m.message?.trim()) return;
-      apply({ type: "line", role, text: m.message });
+      apply({ type: "line", role, text: m.message }, true);
       setCaption({ role, text: m.message, words: Infinity });
     },
-    onError: (message: string) => setError(message || "Voice session error."),
+    onError: (message: string) => setNotice(message || "Voice session error."),
     onDisconnect: () => {
-      setMode((m) => (m === "live" || m === "connecting" ? "idle" : m));
+      setMode((m) => (m === "live" || m === "connecting" ? "demo-done" : m));
       setSpeaker(null);
     },
     onConnect: () => setMode("live"),
   });
 
-  useConversationClientTool<Tools, "set_energy">("set_energy", (p) =>
-    describe(apply({ type: "set_energy", level: num(p.level, 5), sleepHours: p.sleep_hours == null ? null : num(p.sleep_hours, 0) })),
-  );
-  useConversationClientTool<Tools, "add_activity">("add_activity", (p) =>
-    describe(
-      apply({
-        type: "add_activity",
-        name: String(p.name ?? "Activity"),
-        spoons: num(p.spoons, 1),
-        when: toSlot(p.when),
-        note: p.note ? String(p.note) : undefined,
-      }),
-    ),
-  );
-  useConversationClientTool<Tools, "remove_activity">("remove_activity", (p) =>
-    describe(apply({ type: "remove_activity", name: String(p.name ?? "") })),
-  );
-  useConversationClientTool<Tools, "suggest_rest">("suggest_rest", (p) =>
-    describe(apply({ type: "suggest_rest", after: String(p.after ?? ""), minutes: num(p.minutes, 30) })),
-  );
+  const sendWeatherContext = useCallback(() => {
+    const w = dayRef.current.weather;
+    if (!w) return;
+    conversation.sendContextualUpdate(
+      `Local weather from Open-Meteo (${w.source === "live" ? "their location" : "London fallback"}): surface pressure ${Math.round(w.pressure)} hPa, change over 24 h ${w.delta24} hPa, temperature ${Math.round(w.tempC)}°C. It is already applied to the budget.`,
+    );
+  }, [conversation]);
+
+  const readout = () => describe(dayRef.current);
+
+  useConversationClientTool<Tools, "set_energy">("set_energy", (p) => {
+    apply({ type: "set_energy", level: num(p.level, 5) });
+    return readout();
+  });
+  useConversationClientTool<Tools, "set_sleep">("set_sleep", (p) => {
+    apply({ type: "set_sleep", hours: num(p.hours, 7), quality: toQuality(p.quality) });
+    return readout();
+  });
+  useConversationClientTool<Tools, "log_previous_day">("log_previous_day", (p) => {
+    const daysAgo = num(p.days_ago, 1) >= 2 ? 2 : 1;
+    apply({ type: "log_previous_day", daysAgo, record: { spent: num(p.spent, 0), budget: num(p.budget, 10) } });
+    return readout();
+  });
+  useConversationClientTool<Tools, "set_body_signals">("set_body_signals", (p) => {
+    apply({
+      type: "set_body_signals",
+      restingHrDelta: optNum(p.resting_hr_delta),
+      hrvDeltaPct: optNum(p.hrv_delta_pct),
+      cyclePhase: toPhase(p.cycle_phase),
+      stress: optNum(p.stress),
+    });
+    return readout();
+  });
+  useConversationClientTool<Tools, "add_activity">("add_activity", (p) => {
+    apply({
+      type: "add_activity",
+      name: String(p.name ?? "Activity"),
+      spoons: num(p.spoons, 1),
+      when: toSlot(p.when),
+      note: p.note ? String(p.note) : undefined,
+    });
+    return readout();
+  });
+  useConversationClientTool<Tools, "remove_activity">("remove_activity", (p) => {
+    apply({ type: "remove_activity", name: String(p.name ?? "") });
+    return readout();
+  });
+  useConversationClientTool<Tools, "suggest_rest">("suggest_rest", (p) => {
+    apply({ type: "suggest_rest", after: String(p.after ?? ""), minutes: num(p.minutes, 30) });
+    return readout();
+  });
   useConversationClientTool<Tools, "flag_crash_risk">("flag_crash_risk", (p) => {
-    const level: CrashLevel = p.level === "high" || p.level === "moderate" ? p.level : "low";
-    apply({ type: "flag_crash_risk", level, reason: String(p.reason ?? "") });
-    return `Crash risk shown as ${level}. ${describe(dayRef.current)}`;
+    apply({ type: "flag_crash_risk", reason: String(p.reason ?? "") });
+    return readout();
   });
 
-  const startLive = async () => {
-    setError(null);
-    resetDay();
-    setMode("connecting");
-    try {
-      const res = await fetch("/api/conversation-token", { cache: "no-store" });
-      const data = (await res.json()) as { token?: string; error?: string };
-      if (!res.ok || !data.token) throw new Error(data.error ?? "Could not start a voice session.");
-      // Ask for the mic up front so the permission prompt isn't racing the connection.
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => track.stop());
-      conversation.startSession({ conversationToken: data.token, connectionType: "webrtc" });
-    } catch (e) {
-      setMode("idle");
-      setError(e instanceof Error ? e.message : "Could not start a voice session.");
+  useEffect(() => {
+    if (mode === "live") sendWeatherContext();
+  }, [mode, sendWeatherContext]);
+
+  const scrollToPlan = () => {
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      planRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
@@ -157,27 +216,27 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
       const { signal } = controller;
       const speed = opts.speed ?? 1;
       resetDay();
-      setError(null);
       setMode("demo");
       try {
-        await sleep(700 / speed, signal);
+        await sleep(900 / speed, signal);
         for (const step of DEMO_SCRIPT) {
           if (step.kind === "pause") {
             await sleep(step.ms / speed, signal);
           } else if (step.kind === "tool") {
+            setSpeaker(null);
             apply(step.action);
-            await sleep(420 / speed, signal);
+            await sleep(480 / speed, signal);
           } else {
             const words = step.text.split(/\s+/).length;
             const total = speakMs(step.text, step.role) / speed;
             setSpeaker(step.role);
-            apply({ type: "line", role: step.role, text: step.text });
+            apply({ type: "line", role: step.role, text: step.text }, true);
             for (let w = 1; w <= words; w++) {
               setCaption({ role: step.role, text: step.text, words: w });
               await sleep(total / words, signal);
             }
             setSpeaker(null);
-            await sleep(520 / speed, signal);
+            await sleep(480 / speed, signal);
           }
         }
         setMode("demo-done");
@@ -190,65 +249,107 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
     [apply, resetDay],
   );
 
-  const stopDemo = () => {
-    abortRef.current?.abort();
-    setMode("idle");
-    resetDay();
+  const watchDemo = () => {
+    setNotice(null);
+    void runDemo();
   };
 
-  /** ?demo=play autoplays, ?demo=end jumps to the final frame (screenshots, og image). */
+  const startLive = async () => {
+    setNotice(null);
+    if (!liveAvailable) {
+      setNotice("Live voice isn't switched on here yet, so here's the scripted demo.");
+      void runDemo();
+      return;
+    }
+    resetDay();
+    setMode("connecting");
+    try {
+      const [res, where] = await Promise.all([fetch("/api/conversation-token", { cache: "no-store" }), locate()]);
+      const weather = await fetchWeather(where, where.live ? "live" : "fallback").catch(() => null);
+      if (weather) apply({ type: "set_weather", weather }, true);
+      const data = (await res.json()) as { token?: string; error?: string };
+      if (!res.ok || !data.token) throw new Error(data.error ?? "Could not start a voice session.");
+      // Ask for the mic up front so the permission prompt isn't racing the connection.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      conversation.startSession({ conversationToken: data.token, connectionType: "webrtc" });
+      scrollToPlan();
+    } catch (e) {
+      setMode("idle");
+      setNotice(e instanceof Error ? e.message : "Could not start a voice session.");
+    }
+  };
+
+  const stop = () => {
+    if (mode === "demo") {
+      abortRef.current?.abort();
+      setMode("demo-done");
+    } else conversation.endSession();
+  };
+
+  /* -------- URL flags: ?demo=play autoplays; ?demo=crash|end freeze a frame -------- */
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const demo = params.get("demo");
+    const ctrl = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (demo === "play") {
-      const id = setTimeout(() => void runDemo({ speed: num(params.get("speed"), 1) }), 0);
-      return () => clearTimeout(id);
-    }
-    if (demo === "end" || demo === "crash") {
-      // "crash" freezes on the moment the crash warning appears; "end" on the final plan.
+      timer = setTimeout(() => void runDemo({ speed: num(params.get("speed"), 1) }), 0);
+    } else if (demo === "end" || demo === "crash") {
       const stopAt =
         demo === "crash"
           ? DEMO_SCRIPT.findIndex((s) => s.kind === "say" && s.text.includes("sneaks up"))
-          : DEMO_SCRIPT.findLastIndex((s) => s.kind === "say" && s.text.includes("reserve"));
-      const id = setTimeout(() => {
+          : DEMO_SCRIPT.findLastIndex((s) => s.kind === "say" && s.text.includes("one in four"));
+      timer = setTimeout(() => {
         DEMO_SCRIPT.slice(0, stopAt + 1).forEach((step) => {
-          if (step.kind === "tool") apply(step.action);
+          if (step.kind === "tool") apply(step.action, true);
+          if (step.kind === "say") apply({ type: "line", role: step.role, text: step.text }, true);
         });
         const line = DEMO_SCRIPT[stopAt];
         if (line?.kind === "say") setCaption({ role: "agent", text: line.text, words: Infinity });
+        setLastTool({ id: 1, label: demo === "crash" ? 'add_activity("Cook dinner", 4, "evening")' : 'suggest_rest(after "Shower", 30 min)' });
         setSpeaker("agent");
         setMode("demo-done");
       }, 0);
-      return () => clearTimeout(id);
+    } else {
+      // Landing: show today's real pressure (London) without asking for location.
+      fetchWeather(undefined, "fallback", ctrl.signal)
+        .then((w) => {
+          if (w && !dayRef.current.weather) apply({ type: "set_weather", weather: w }, true);
+        })
+        .catch(() => {});
     }
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
   }, [apply, runDemo]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  /* ---------------- Orb level ---------------- */
+  /* ---------------- Orb + derived UI state ---------------- */
 
   const speaker = mode === "live" ? (conversation.isSpeaking ? "agent" : "user") : demoSpeaker;
-
-  const getLevel = useCallback(() => {
-    if (mode === "live") {
-      try {
-        return conversation.isSpeaking ? conversation.getOutputVolume() * 1.6 : conversation.getInputVolume() * 1.4;
-      } catch {
-        return 0;
-      }
-    }
-    if (!speaker) return 0;
-    const t = performance.now() / 1000;
-    const syllables = Math.abs(Math.sin(t * 8.3) * Math.sin(t * 3.1 + 1));
-    return speaker === "agent" ? 0.25 + syllables * 0.55 : 0.12 + syllables * 0.3;
-  }, [mode, speaker, conversation]);
-
-  const orbState: OrbState =
-    mode === "connecting" ? "connecting" : speaker === "agent" ? "speaking" : speaker === "user" || mode === "live" ? "listening" : "idle";
-
   const busy = mode === "demo" || mode === "live" || mode === "connecting";
   const started = mode !== "idle";
-  const warn = day.crash?.level === "high" || day.crash?.level === "moderate";
+  const warn = d.hasPlan && d.risk.level !== "low";
+
+  const agentState: AgentState =
+    mode === "connecting"
+      ? "thinking"
+      : speaker === "agent"
+        ? "talking"
+        : speaker === "user"
+          ? "listening"
+          : mode === "demo" || mode === "live"
+            ? "thinking"
+            : null;
+
+  const colorsRef = useRef<[string, string]>(CALM);
+  useEffect(() => {
+    colorsRef.current = warn ? WARM : CALM;
+  }, [warn]);
 
   const status =
     mode === "connecting"
@@ -257,13 +358,9 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
         ? conversation.isSpeaking
           ? "Speaking"
           : "Listening"
-        : mode === "demo"
+        : mode === "demo" || mode === "demo-done"
           ? "Demo · scripted"
-          : mode === "demo-done"
-            ? "Demo · scripted"
-            : liveAvailable
-              ? "ElevenLabs voice agent"
-              : "Demo mode";
+          : "ElevenLabs Agents · client tools";
 
   const visibleCaption = caption
     ? caption.text
@@ -273,126 +370,196 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
     : null;
 
   return (
-    <div className="grid w-full flex-1 grid-cols-1 items-center gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-16">
-      {/* Stage */}
-      <section className="flex flex-col items-center text-center">
-        <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-xs text-white/50">
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              mode === "live" ? "bg-[var(--color-rest)]" : busy ? "animate-pulse bg-white/70" : "bg-white/30"
-            }`}
+    <LayoutGroup>
+      <section
+        className={cn(
+          "relative grid w-full gap-10",
+          started ? "items-start lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:gap-14" : "grid-cols-1 justify-items-center",
+        )}
+      >
+        {/* Background effect, anchored to the hero */}
+        <div className="pointer-events-none absolute inset-x-[-10vw] -top-24 h-[760px] overflow-hidden" aria-hidden="true">
+          <AnimatedGridPattern
+            numSquares={26}
+            maxOpacity={0.07}
+            duration={4}
+            width={56}
+            height={56}
+            className="fill-white/[0.06] stroke-white/[0.05] [mask-image:radial-gradient(520px_circle_at_50%_42%,white,transparent)]"
           />
-          {status}
+          <div
+            className={cn(
+              "absolute top-[18%] left-1/2 h-[520px] w-[720px] -translate-x-1/2 rounded-full blur-3xl transition-colors duration-1000",
+              warn ? "bg-[#f6a76b]/[0.07]" : "bg-[#9d8cff]/[0.08]",
+            )}
+          />
         </div>
 
-        <div className="relative aspect-square w-full max-w-[300px] sm:max-w-[400px]">
-          <Orb state={orbState} getLevel={getLevel} warn={warn} className="absolute inset-0 h-full w-full" />
-        </div>
+        {/* Stage */}
+        <motion.div
+          layout
+          transition={{ type: "spring", stiffness: 140, damping: 24 }}
+          className={cn("relative z-10 flex w-full flex-col items-center text-center", started && "lg:sticky lg:top-6")}
+        >
+          <motion.div layout="position" className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[12px] text-white/55 backdrop-blur">
+            <span className={cn("size-1.5 rounded-full", mode === "live" ? "bg-rest" : busy ? "animate-pulse bg-white/70" : "bg-violet-300")} />
+            {status}
+          </motion.div>
 
-        <div className="flex min-h-[132px] w-full max-w-[520px] flex-col items-center justify-start sm:min-h-[150px]">
-          <AnimatePresence mode="wait">
-            {!started || !visibleCaption ? (
-              <motion.h1
-                key="headline"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                className="font-serif text-[38px] leading-[1.05] tracking-[-0.01em] text-white sm:text-[52px]"
-              >
-                How many spoons
-                <br />
-                <em className="text-white/55">do you have today?</em>
-              </motion.h1>
-            ) : (
+          <AnimatePresence initial={false} mode="popLayout">
+            {!started && (
               <motion.div
-                key={caption!.text}
-                initial={{ opacity: 0, y: 6 }}
+                key="headline"
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
-                transition={{ duration: 0.3 }}
-                className="flex flex-col items-center gap-2"
-                aria-live="polite"
+                exit={{ opacity: 0, y: -16, filter: "blur(8px)" }}
+                transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
+                className="flex flex-col items-center"
               >
-                <span className="text-xs uppercase tracking-[0.16em] text-white/35">
-                  {caption!.role === "agent" ? "Spoon Talk" : "You"}
-                </span>
-                <p
-                  className={`font-serif text-[24px] leading-[1.25] sm:text-[30px] ${
-                    caption!.role === "agent" ? "text-white" : "italic text-white/60"
-                  }`}
-                >
-                  {visibleCaption}
+                <h1 className="text-[44px] leading-[0.98] font-semibold tracking-[-0.045em] text-white sm:text-[72px]">
+                  Plan your day <br className="sm:hidden" />
+                  in spoons.
+                  <br />
+                  <span className="text-gradient">Just talk.</span>
+                </h1>
+                <p className="mt-5 max-w-md text-[15px] leading-relaxed text-white/50 sm:text-base">
+                  A voice agent that budgets your energy, prices each task and warns you before tomorrow&apos;s crash.
                 </p>
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
 
-        <div className="flex h-6 items-center justify-center">
-          <AnimatePresence mode="wait">
-            {lastTool && busy && (
-              <motion.code
-                key={lastTool.id}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="max-w-[90vw] truncate font-mono text-[11px] text-white/30"
-              >
-                <span className="text-[var(--color-rest)]/70">client tool</span> {lastTool.label}
-              </motion.code>
-            )}
-          </AnimatePresence>
-        </div>
+          <motion.div
+            layout
+            transition={{ type: "spring", stiffness: 140, damping: 24 }}
+            className={cn("relative aspect-square", started ? "mt-1 w-[220px] sm:w-[300px]" : "mt-6 w-[260px] sm:w-[340px]")}
+          >
+            <div
+              aria-hidden="true"
+              className={cn(
+                "absolute inset-[-14%] rounded-full opacity-70 blur-3xl transition-colors duration-1000",
+                warn ? "bg-[radial-gradient(circle,rgba(246,167,107,0.35),transparent_65%)]" : "bg-[radial-gradient(circle,rgba(157,140,255,0.35),transparent_65%)]",
+              )}
+            />
+            <div aria-hidden="true" className="absolute inset-[-3%] rounded-full border border-white/[0.06]" />
+            {/* Screen-blend + soft radial mask: the orb's dark (inverted) gaps melt into the page and the petals glow. */}
+            <div className="relative size-full mix-blend-screen [mask-image:radial-gradient(circle,#000_55%,transparent_71%)]">
+              <Orb
+                colors={CALM}
+                colorsRef={colorsRef}
+                seed={7}
+                agentState={agentState}
+                volumeMode={mode === "live" ? "manual" : "auto"}
+                getInputVolume={mode === "live" ? conversation.getInputVolume : undefined}
+                getOutputVolume={mode === "live" ? conversation.getOutputVolume : undefined}
+                className="size-full"
+              />
+            </div>
+          </motion.div>
 
-        <div className="mt-4 flex flex-col items-center gap-3">
-          {busy ? (
-            <button
-              type="button"
-              onClick={mode === "demo" ? stopDemo : () => conversation.endSession()}
-              className="pill"
-            >
-              {mode === "demo" ? "Stop demo" : "End conversation"}
-            </button>
-          ) : liveAvailable ? (
-            <>
-              <button type="button" onClick={startLive} className="pill pill-primary">
-                <MicIcon /> Start talking
-              </button>
-              <button type="button" onClick={() => runDemo()} className="text-sm text-white/45 transition hover:text-white/80">
-                or watch the demo
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => runDemo()} className="pill pill-primary">
-              <PlayIcon /> {mode === "demo-done" ? "Replay the demo" : "Play the demo"}
-            </button>
+          <div className={cn("h-10 w-full max-w-[260px] transition-opacity duration-500", busy ? "opacity-100" : "opacity-0")}>
+            <LiveWaveform
+              active={mode === "live" && !conversation.isSpeaking}
+              processing={speaker === "agent" || mode === "connecting"}
+              height={40}
+              barWidth={3}
+              barGap={2}
+              barColor="rgba(255,255,255,0.55)"
+              mode="static"
+              fadeEdges
+            />
+          </div>
+
+          {started && (
+            <div className="flex min-h-[124px] w-full max-w-[520px] flex-col items-center justify-start" aria-live="polite">
+              <AnimatePresence mode="wait">
+                {visibleCaption ? (
+                  <motion.div
+                    key={caption!.text}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
+                    transition={{ duration: 0.3 }}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <span className="text-[11px] tracking-[0.16em] text-white/35 uppercase">
+                      {caption!.role === "agent" ? "Spoon Talk" : "You"}
+                    </span>
+                    <p
+                      className={cn(
+                        "text-[20px] leading-[1.35] tracking-[-0.01em] text-balance sm:text-[24px]",
+                        caption!.role === "agent" ? "text-white" : "text-white/55 italic",
+                      )}
+                    >
+                      {visibleCaption}
+                    </p>
+                  </motion.div>
+                ) : (
+                  <motion.div key="wait" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pt-6 text-lg">
+                    <ShimmeringText text={mode === "connecting" ? "Connecting…" : "Listening…"} color="rgba(255,255,255,0.35)" shimmerColor="#fff" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           )}
-          {error && <p className="max-w-xs text-sm text-[var(--color-warn)]">{error}</p>}
-        </div>
+
+          <div className="mt-4 flex flex-col items-center gap-3">
+            {busy ? (
+              <Button variant="outline" size="lg" onClick={stop} className="h-11 rounded-full border-white/15 bg-white/[0.04] px-5">
+                <Square className="size-3.5 fill-current" /> {mode === "demo" ? "Stop demo" : "End conversation"}
+              </Button>
+            ) : (
+              <div className="flex flex-col items-center gap-3 sm:flex-row">
+                <ShimmerButton
+                  onClick={startLive}
+                  background="linear-gradient(180deg,#1c1a2b,#0e0d16)"
+                  shimmerColor="#cfc8ff"
+                  shimmerDuration="2.6s"
+                  className="h-12 gap-2 px-6 text-[15px] font-medium shadow-[0_0_40px_-8px_rgba(157,140,255,0.55)]"
+                >
+                  <Mic className="size-4" /> Start talking
+                </ShimmerButton>
+                <Button variant="ghost" size="lg" onClick={watchDemo} className="h-12 rounded-full px-5 text-white/60 hover:text-white">
+                  <Play className="size-3.5 fill-current" /> {mode === "demo-done" ? "Replay the demo" : "Watch the demo"}
+                </Button>
+              </div>
+            )}
+            {notice && <p className="max-w-xs text-[13px] text-white/50">{notice}</p>}
+          </div>
+
+          <div className="mt-3 flex h-6 items-center justify-center">
+            <AnimatePresence mode="wait">
+              {lastTool && started && (
+                <motion.code
+                  key={lastTool.id}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="max-w-[88vw] truncate font-mono text-[11px] text-white/35"
+                >
+                  <span className="text-rest/80">client tool</span> {lastTool.label}
+                </motion.code>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+
+        {/* Plan */}
+        <motion.section
+          ref={planRef}
+          layout
+          transition={{ type: "spring", stiffness: 140, damping: 24 }}
+          aria-label="Today's spoon plan"
+          className={cn("panel relative z-10 w-full scroll-mt-6 rounded-[28px] p-5 sm:p-7", !started && "max-w-2xl")}
+        >
+          <DayPlan day={day} d={d} />
+        </motion.section>
       </section>
 
-      {/* Plan */}
-      <section aria-label="Today's spoon plan" className="glass rounded-[28px] p-5 sm:p-7">
-        <DayPlan day={day} />
-      </section>
-    </div>
-  );
-}
-
-function MicIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
-      <path d="M7 4.8v14.4a1 1 0 0 0 1.5.9l11.2-7.2a1 1 0 0 0 0-1.7L8.5 3.9A1 1 0 0 0 7 4.8Z" />
-    </svg>
+      <motion.div layout className="relative z-10 mt-14 w-full">
+        <MathsSection day={day} d={d} />
+      </motion.div>
+    </LayoutGroup>
   );
 }
 

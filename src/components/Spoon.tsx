@@ -8,13 +8,15 @@ export type SpoonTone = "full" | "used" | "borrowed";
 interface SpoonProps {
   /** 0..1 portion filled (left to right) for half spoons. */
   fill?: number;
+  /** 0..1 portion of the glyph that exists at all (a half-spoon budget). */
+  capacity?: number;
   tone?: SpoonTone;
   className?: string;
   style?: React.CSSProperties;
 }
 
 /** A clean, hand-tuned spoon glyph. Filled spoons are polished; used ones are a quiet outline. */
-export function Spoon({ fill = 1, tone = "full", className, style }: SpoonProps) {
+export function Spoon({ fill = 1, capacity = 1, tone = "full", className, style }: SpoonProps) {
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const outline =
     tone === "borrowed"
@@ -33,7 +35,11 @@ export function Spoon({ fill = 1, tone = "full", className, style }: SpoonProps)
         <clipPath id={`c${id}`}>
           <rect x="0" y="0" width={24 * Math.max(0, Math.min(1, fill))} height="62" />
         </clipPath>
+        <clipPath id={`k${id}`}>
+          <rect x="0" y="0" width={24 * Math.max(0, Math.min(1, capacity))} height="62" />
+        </clipPath>
       </defs>
+      <g clipPath={`url(#k${id})`}>
       <path
         d={SPOON_PATH}
         fill="none"
@@ -47,6 +53,7 @@ export function Spoon({ fill = 1, tone = "full", className, style }: SpoonProps)
           <ellipse cx="9.4" cy="10.5" rx="2.6" ry="5" fill="rgba(255,255,255,0.55)" />
         </g>
       )}
+      </g>
     </svg>
   );
 }
