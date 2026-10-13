@@ -1,0 +1,73 @@
+---
+title: Spoon Talk
+description: Plan your day in spoons, out loud. A voice agent for chronic illness that prices activities, adds rest and warns about next-day crashes.
+authorIds:
+  - marshall-gould
+categories:
+  - agents
+isFeatured: false
+date: "2026-10-13"
+image: /images/spoon-talk.png
+demoUrl: https://TODO-spoon-talk-demo.vercel.app # TODO: replace with the deployed demo URL
+repoUrl: https://github.com/MarshallBear1/spoon-talk # TODO: confirm once the repo is public
+---
+
+# Spoon Talk
+
+## Overview
+
+Spoon Talk is a voice agent that helps people with chronic illness (ME/CFS, long COVID, POTS, fibromyalgia and more) plan one day using [spoon theory](https://junocompanion.com/blog/pacing-and-energy/spoon-theory). You talk through your day, for example "a GP appointment, a shower, and I want to cook tonight". It asks how you slept and how much energy you have, then plans the day in spoons and speaks back in an ElevenLabs voice.
+
+While you talk, the screen builds itself. The spoon budget fills, each activity appears as a card with its cost, rest blocks slot in after big tasks, and a warning appears when the plan risks a delayed crash. Post-exertional malaise often lands 24 to 48 hours later. The voice drives the UI through **ElevenLabs Agents client tools**.
+
+It was built by [Juno](https://junocompanion.com), a companion app for people living with chronic illness.
+
+## Key Features
+
+- **Voice-driven generative UI**: five client tools (`set_energy`, `add_activity`, `remove_activity`, `suggest_rest`, `flag_crash_risk`) update the plan live while the agent speaks.
+- **Real numbers, always**: every tool returns the live totals, so the agent never does the maths in its head.
+- **Next-day crash warnings**: flags delayed post-exertional malaise risk and suggests one concrete trade-off.
+- **Audio-reactive orb**: driven by the SDK's input and output volume.
+- **Demo mode with no keys**: a scripted conversation drives the exact same reducer, so anyone can try it.
+- **Private by default**: the server mints a short-lived WebRTC conversation token, and the API key never reaches the browser.
+
+## How It Works
+
+- `@elevenlabs/react` `useConversation` connects to a private ElevenLabs Agent over WebRTC, using a token from a Next.js route handler.
+- Client tools are registered with `useConversationClientTool`. Each tool sends an action to one pure reducer (the spoon model) and returns a text summary to the agent.
+- The budget is energy × 2.4, inspired by Juno's [pacing white paper](https://junocompanion.com/juno_pacing_whitepaper.pdf) (a development prototype, not clinically validated). Rests give spoons back. Going over budget shows spoons "borrowed from tomorrow".
+- `scripts/create-agent.ts` creates the client tools and the agent (system prompt, first message, voice) through the ElevenLabs API.
+
+## Technologies Used
+
+- ElevenLabs Agents (Conversational AI) with client tools
+- ElevenLabs TTS (Flash v2)
+- `@elevenlabs/react` and `@elevenlabs/elevenlabs-js`
+- Next.js (App Router), TypeScript, Tailwind CSS, Motion
+
+## Getting Started
+
+```bash
+git clone https://github.com/MarshallBear1/spoon-talk
+cd spoon-talk
+npm install
+npm run dev                 # demo mode works with no keys
+
+# live voice
+cp .env.example .env.local  # add ELEVENLABS_API_KEY
+npm run create-agent        # prints ELEVENLABS_AGENT_ID
+```
+
+## Demo
+
+![Spoon Talk](/images/spoon-talk.png)
+
+## Future Plans
+
+- Carry yesterday's plan into today, so the agent can spot a delayed crash as it builds.
+- Optional wearable signals (sleep, HRV, resting heart rate) to adjust costs.
+- More languages using ElevenLabs multilingual voices.
+
+## Acknowledgments
+
+Spoon theory was created by Christine Miserandino. Built by [Juno](https://junocompanion.com). Spoon Talk is not medical advice.
