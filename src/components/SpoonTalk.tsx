@@ -38,7 +38,9 @@ import { MathsSection } from "./MathsSection";
 // The ElevenLabs UI orb is WebGL (three.js / react-three-fiber): client only.
 const Orb = dynamic(() => import("@/components/ui/orb").then((m) => m.Orb), {
   ssr: false,
-  loading: () => <div className="size-full rounded-full bg-[radial-gradient(circle,rgba(180,169,255,0.25),transparent_65%)]" />,
+  loading: () => (
+    <div className="size-full rounded-full bg-[radial-gradient(circle,rgba(180,169,255,0.25),transparent_65%)]" />
+  ),
 });
 
 type Mode = "idle" | "demo" | "demo-done" | "connecting" | "live";
@@ -47,9 +49,23 @@ type Mode = "idle" | "demo" | "demo-done" | "connecting" | "live";
 type Tools = {
   set_energy: (p: { level?: unknown }) => string;
   set_sleep: (p: { hours?: unknown; quality?: unknown }) => string;
-  log_previous_day: (p: { days_ago?: unknown; spent?: unknown; budget?: unknown }) => string;
-  set_body_signals: (p: { resting_hr_delta?: unknown; hrv_delta_pct?: unknown; cycle_phase?: unknown; stress?: unknown }) => string;
-  add_activity: (p: { name?: unknown; spoons?: unknown; when?: unknown; note?: unknown }) => string;
+  log_previous_day: (p: {
+    days_ago?: unknown;
+    spent?: unknown;
+    budget?: unknown;
+  }) => string;
+  set_body_signals: (p: {
+    resting_hr_delta?: unknown;
+    hrv_delta_pct?: unknown;
+    cycle_phase?: unknown;
+    stress?: unknown;
+  }) => string;
+  add_activity: (p: {
+    name?: unknown;
+    spoons?: unknown;
+    when?: unknown;
+    note?: unknown;
+  }) => string;
   remove_activity: (p: { name?: unknown }) => string;
   suggest_rest: (p: { after?: unknown; minutes?: unknown }) => string;
   flag_crash_risk: (p: { reason?: unknown }) => string;
@@ -98,8 +114,15 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
   const dayRef = useRef(day);
   const [mode, setMode] = useState<Mode>("idle");
   const [demoSpeaker, setSpeaker] = useState<"agent" | "user" | null>(null);
-  const [caption, setCaption] = useState<{ role: "agent" | "user"; text: string; words: number } | null>(null);
-  const [lastTool, setLastTool] = useState<{ id: number; label: string } | null>(null);
+  const [caption, setCaption] = useState<{
+    role: "agent" | "user";
+    text: string;
+    words: number;
+  } | null>(null);
+  const [lastTool, setLastTool] = useState<{
+    id: number;
+    label: string;
+  } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const planRef = useRef<HTMLDivElement>(null);
@@ -155,24 +178,38 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
     return readout();
   });
   useConversationClientTool<Tools, "set_sleep">("set_sleep", (p) => {
-    apply({ type: "set_sleep", hours: num(p.hours, 7), quality: toQuality(p.quality) });
-    return readout();
-  });
-  useConversationClientTool<Tools, "log_previous_day">("log_previous_day", (p) => {
-    const daysAgo = num(p.days_ago, 1) >= 2 ? 2 : 1;
-    apply({ type: "log_previous_day", daysAgo, record: { spent: num(p.spent, 0), budget: num(p.budget, 10) } });
-    return readout();
-  });
-  useConversationClientTool<Tools, "set_body_signals">("set_body_signals", (p) => {
     apply({
-      type: "set_body_signals",
-      restingHrDelta: optNum(p.resting_hr_delta),
-      hrvDeltaPct: optNum(p.hrv_delta_pct),
-      cyclePhase: toPhase(p.cycle_phase),
-      stress: optNum(p.stress),
+      type: "set_sleep",
+      hours: num(p.hours, 7),
+      quality: toQuality(p.quality),
     });
     return readout();
   });
+  useConversationClientTool<Tools, "log_previous_day">(
+    "log_previous_day",
+    (p) => {
+      const daysAgo = num(p.days_ago, 1) >= 2 ? 2 : 1;
+      apply({
+        type: "log_previous_day",
+        daysAgo,
+        record: { spent: num(p.spent, 0), budget: num(p.budget, 10) },
+      });
+      return readout();
+    },
+  );
+  useConversationClientTool<Tools, "set_body_signals">(
+    "set_body_signals",
+    (p) => {
+      apply({
+        type: "set_body_signals",
+        restingHrDelta: optNum(p.resting_hr_delta),
+        hrvDeltaPct: optNum(p.hrv_delta_pct),
+        cyclePhase: toPhase(p.cycle_phase),
+        stress: optNum(p.stress),
+      });
+      return readout();
+    },
+  );
   useConversationClientTool<Tools, "add_activity">("add_activity", (p) => {
     apply({
       type: "add_activity",
@@ -183,18 +220,28 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
     });
     return readout();
   });
-  useConversationClientTool<Tools, "remove_activity">("remove_activity", (p) => {
-    apply({ type: "remove_activity", name: String(p.name ?? "") });
-    return readout();
-  });
+  useConversationClientTool<Tools, "remove_activity">(
+    "remove_activity",
+    (p) => {
+      apply({ type: "remove_activity", name: String(p.name ?? "") });
+      return readout();
+    },
+  );
   useConversationClientTool<Tools, "suggest_rest">("suggest_rest", (p) => {
-    apply({ type: "suggest_rest", after: String(p.after ?? ""), minutes: num(p.minutes, 30) });
+    apply({
+      type: "suggest_rest",
+      after: String(p.after ?? ""),
+      minutes: num(p.minutes, 30),
+    });
     return readout();
   });
-  useConversationClientTool<Tools, "flag_crash_risk">("flag_crash_risk", (p) => {
-    apply({ type: "flag_crash_risk", reason: String(p.reason ?? "") });
-    return readout();
-  });
+  useConversationClientTool<Tools, "flag_crash_risk">(
+    "flag_crash_risk",
+    (p) => {
+      apply({ type: "flag_crash_risk", reason: String(p.reason ?? "") });
+      return readout();
+    },
+  );
 
   useEffect(() => {
     if (mode === "live") sendWeatherContext();
@@ -257,26 +304,40 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
   const startLive = async () => {
     setNotice(null);
     if (!liveAvailable) {
-      setNotice("Live voice isn't switched on here yet, so here's the scripted demo.");
+      setNotice(
+        "Live voice isn't switched on here yet, so here's the scripted demo.",
+      );
       void runDemo();
       return;
     }
     resetDay();
     setMode("connecting");
     try {
-      const [res, where] = await Promise.all([fetch("/api/conversation-token", { cache: "no-store" }), locate()]);
-      const weather = await fetchWeather(where, where.live ? "live" : "fallback").catch(() => null);
+      const [res, where] = await Promise.all([
+        fetch("/api/conversation-token", { cache: "no-store" }),
+        locate(),
+      ]);
+      const weather = await fetchWeather(
+        where,
+        where.live ? "live" : "fallback",
+      ).catch(() => null);
       if (weather) apply({ type: "set_weather", weather }, true);
       const data = (await res.json()) as { token?: string; error?: string };
-      if (!res.ok || !data.token) throw new Error(data.error ?? "Could not start a voice session.");
+      if (!res.ok || !data.token)
+        throw new Error(data.error ?? "Could not start a voice session.");
       // Ask for the mic up front so the permission prompt isn't racing the connection.
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
-      conversation.startSession({ conversationToken: data.token, connectionType: "webrtc" });
+      conversation.startSession({
+        conversationToken: data.token,
+        connectionType: "webrtc",
+      });
       scrollToPlan();
     } catch (e) {
       setMode("idle");
-      setNotice(e instanceof Error ? e.message : "Could not start a voice session.");
+      setNotice(
+        e instanceof Error ? e.message : "Could not start a voice session.",
+      );
     }
   };
 
@@ -295,20 +356,35 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
     const ctrl = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (demo === "play") {
-      timer = setTimeout(() => void runDemo({ speed: num(params.get("speed"), 1) }), 0);
+      timer = setTimeout(
+        () => void runDemo({ speed: num(params.get("speed"), 1) }),
+        0,
+      );
     } else if (demo === "end" || demo === "crash") {
       const stopAt =
         demo === "crash"
-          ? DEMO_SCRIPT.findIndex((s) => s.kind === "say" && s.text.includes("sneaks up"))
-          : DEMO_SCRIPT.findLastIndex((s) => s.kind === "say" && s.text.includes("one in four"));
+          ? DEMO_SCRIPT.findIndex(
+              (s) => s.kind === "say" && s.text.includes("sneaks up"),
+            )
+          : DEMO_SCRIPT.findLastIndex(
+              (s) => s.kind === "say" && s.text.includes("one in four"),
+            );
       timer = setTimeout(() => {
         DEMO_SCRIPT.slice(0, stopAt + 1).forEach((step) => {
           if (step.kind === "tool") apply(step.action, true);
-          if (step.kind === "say") apply({ type: "line", role: step.role, text: step.text }, true);
+          if (step.kind === "say")
+            apply({ type: "line", role: step.role, text: step.text }, true);
         });
         const line = DEMO_SCRIPT[stopAt];
-        if (line?.kind === "say") setCaption({ role: "agent", text: line.text, words: Infinity });
-        setLastTool({ id: 1, label: demo === "crash" ? 'add_activity("Cook dinner", 4, "evening")' : 'suggest_rest(after "Shower", 30 min)' });
+        if (line?.kind === "say")
+          setCaption({ role: "agent", text: line.text, words: Infinity });
+        setLastTool({
+          id: 1,
+          label:
+            demo === "crash"
+              ? 'add_activity("Cook dinner", 4, "evening")'
+              : 'suggest_rest(after "Shower", 30 min)',
+        });
         setSpeaker("agent");
         setMode("demo-done");
       }, 0);
@@ -316,7 +392,8 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
       // Landing: show today's real pressure (London) without asking for location.
       fetchWeather(undefined, "fallback", ctrl.signal)
         .then((w) => {
-          if (w && !dayRef.current.weather) apply({ type: "set_weather", weather: w }, true);
+          if (w && !dayRef.current.weather)
+            apply({ type: "set_weather", weather: w }, true);
         })
         .catch(() => {});
     }
@@ -330,7 +407,12 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
 
   /* ---------------- Orb + derived UI state ---------------- */
 
-  const speaker = mode === "live" ? (conversation.isSpeaking ? "agent" : "user") : demoSpeaker;
+  const speaker =
+    mode === "live"
+      ? conversation.isSpeaking
+        ? "agent"
+        : "user"
+      : demoSpeaker;
   const busy = mode === "demo" || mode === "live" || mode === "connecting";
   const started = mode !== "idle";
   const warn = d.hasPlan && d.risk.level !== "low";
@@ -374,11 +456,16 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
       <section
         className={cn(
           "relative grid w-full gap-10",
-          started ? "items-start lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:gap-14" : "grid-cols-1 justify-items-center",
+          started
+            ? "items-start lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:gap-14"
+            : "grid-cols-1 justify-items-center",
         )}
       >
         {/* Background effect, anchored to the hero */}
-        <div className="pointer-events-none absolute inset-x-[-10vw] -top-24 h-[760px] overflow-hidden" aria-hidden="true">
+        <div
+          className="pointer-events-none absolute inset-x-[-10vw] -top-24 h-[760px] overflow-hidden"
+          aria-hidden="true"
+        >
           <AnimatedGridPattern
             numSquares={26}
             maxOpacity={0.07}
@@ -399,10 +486,25 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
         <motion.div
           layout
           transition={{ type: "spring", stiffness: 140, damping: 24 }}
-          className={cn("relative z-10 flex w-full flex-col items-center text-center", started && "lg:sticky lg:top-6")}
+          className={cn(
+            "relative z-10 flex w-full flex-col items-center text-center",
+            started && "lg:sticky lg:top-6",
+          )}
         >
-          <motion.div layout="position" className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[12px] text-white/55 backdrop-blur">
-            <span className={cn("size-1.5 rounded-full", mode === "live" ? "bg-rest" : busy ? "animate-pulse bg-white/70" : "bg-violet-300")} />
+          <motion.div
+            layout="position"
+            className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[12px] text-white/55 backdrop-blur"
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                mode === "live"
+                  ? "bg-rest"
+                  : busy
+                    ? "animate-pulse bg-white/70"
+                    : "bg-violet-300",
+              )}
+            />
             {status}
           </motion.div>
 
@@ -423,7 +525,8 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
                   <span className="text-gradient">Just talk.</span>
                 </h1>
                 <p className="mt-5 max-w-md text-[15px] leading-relaxed text-white/50 sm:text-base">
-                  A voice agent that budgets your energy, prices each task and warns you before tomorrow&apos;s crash.
+                  A voice agent that budgets your energy, prices each task and
+                  warns you before tomorrow&apos;s crash.
                 </p>
               </motion.div>
             )}
@@ -432,32 +535,49 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
           <motion.div
             layout
             transition={{ type: "spring", stiffness: 140, damping: 24 }}
-            className={cn("relative aspect-square", started ? "mt-1 w-[220px] sm:w-[300px]" : "mt-6 w-[260px] sm:w-[340px]")}
+            className={cn(
+              "relative aspect-square",
+              started
+                ? "mt-1 w-[220px] sm:w-[300px]"
+                : "mt-6 w-[260px] sm:w-[340px]",
+            )}
           >
             <div
               aria-hidden="true"
               className={cn(
                 "absolute inset-[-14%] rounded-full opacity-70 blur-3xl transition-colors duration-1000",
-                warn ? "bg-[radial-gradient(circle,rgba(246,167,107,0.35),transparent_65%)]" : "bg-[radial-gradient(circle,rgba(157,140,255,0.35),transparent_65%)]",
+                warn
+                  ? "bg-[radial-gradient(circle,rgba(246,167,107,0.35),transparent_65%)]"
+                  : "bg-[radial-gradient(circle,rgba(157,140,255,0.35),transparent_65%)]",
               )}
             />
-            <div aria-hidden="true" className="absolute inset-[-3%] rounded-full border border-white/[0.06]" />
-            {/* Screen-blend + soft radial mask: the orb's dark (inverted) gaps melt into the page and the petals glow. */}
-            <div className="relative size-full mix-blend-screen [mask-image:radial-gradient(circle,#000_55%,transparent_71%)]">
-              <Orb
-                colors={CALM}
-                colorsRef={colorsRef}
-                seed={7}
-                agentState={agentState}
-                volumeMode={mode === "live" ? "manual" : "auto"}
-                getInputVolume={mode === "live" ? conversation.getInputVolume : undefined}
-                getOutputVolume={mode === "live" ? conversation.getOutputVolume : undefined}
-                className="size-full"
-              />
+            {/* Framed like the official ElevenLabs UI orb demo: a muted ring with an inset shadow. */}
+            <div className="relative size-full rounded-full bg-white/[0.07] p-1 ring-1 ring-white/[0.06] shadow-[inset_0_2px_8px_rgba(0,0,0,0.5)]">
+              <div className="size-full overflow-hidden rounded-full shadow-[inset_0_0_12px_rgba(0,0,0,0.3)]">
+                <Orb
+                  colors={CALM}
+                  colorsRef={colorsRef}
+                  seed={1000}
+                  agentState={agentState}
+                  volumeMode={mode === "live" ? "manual" : "auto"}
+                  getInputVolume={
+                    mode === "live" ? conversation.getInputVolume : undefined
+                  }
+                  getOutputVolume={
+                    mode === "live" ? conversation.getOutputVolume : undefined
+                  }
+                  className="size-full"
+                />
+              </div>
             </div>
           </motion.div>
 
-          <div className={cn("h-10 w-full max-w-[260px] transition-opacity duration-500", busy ? "opacity-100" : "opacity-0")}>
+          <div
+            className={cn(
+              "h-10 w-full max-w-[260px] transition-opacity duration-500",
+              busy ? "opacity-100" : "opacity-0",
+            )}
+          >
             <LiveWaveform
               active={mode === "live" && !conversation.isSpeaking}
               processing={speaker === "agent" || mode === "connecting"}
@@ -471,7 +591,10 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
           </div>
 
           {started && (
-            <div className="flex min-h-[124px] w-full max-w-[520px] flex-col items-center justify-start" aria-live="polite">
+            <div
+              className="flex min-h-[124px] w-full max-w-[520px] flex-col items-center justify-start"
+              aria-live="polite"
+            >
               <AnimatePresence mode="wait">
                 {visibleCaption ? (
                   <motion.div
@@ -488,15 +611,29 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
                     <p
                       className={cn(
                         "text-[20px] leading-[1.35] tracking-[-0.01em] text-balance sm:text-[24px]",
-                        caption!.role === "agent" ? "text-white" : "text-white/55 italic",
+                        caption!.role === "agent"
+                          ? "text-white"
+                          : "text-white/55 italic",
                       )}
                     >
                       {visibleCaption}
                     </p>
                   </motion.div>
                 ) : (
-                  <motion.div key="wait" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pt-6 text-lg">
-                    <ShimmeringText text={mode === "connecting" ? "Connecting…" : "Listening…"} color="rgba(255,255,255,0.35)" shimmerColor="#fff" />
+                  <motion.div
+                    key="wait"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="pt-6 text-lg"
+                  >
+                    <ShimmeringText
+                      text={
+                        mode === "connecting" ? "Connecting…" : "Listening…"
+                      }
+                      color="rgba(255,255,255,0.35)"
+                      shimmerColor="#fff"
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -505,8 +642,14 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
 
           <div className="mt-4 flex flex-col items-center gap-3">
             {busy ? (
-              <Button variant="outline" size="lg" onClick={stop} className="h-11 rounded-full border-white/15 bg-white/[0.04] px-5">
-                <Square className="size-3.5 fill-current" /> {mode === "demo" ? "Stop demo" : "End conversation"}
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={stop}
+                className="h-11 rounded-full border-white/15 bg-white/[0.04] px-5"
+              >
+                <Square className="size-3.5 fill-current" />{" "}
+                {mode === "demo" ? "Stop demo" : "End conversation"}
               </Button>
             ) : (
               <div className="flex flex-col items-center gap-3 sm:flex-row">
@@ -519,12 +662,20 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
                 >
                   <Mic className="size-4" /> Start talking
                 </ShimmerButton>
-                <Button variant="ghost" size="lg" onClick={watchDemo} className="h-12 rounded-full px-5 text-white/60 hover:text-white">
-                  <Play className="size-3.5 fill-current" /> {mode === "demo-done" ? "Replay the demo" : "Watch the demo"}
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  onClick={watchDemo}
+                  className="h-12 rounded-full px-5 text-white/60 hover:text-white"
+                >
+                  <Play className="size-3.5 fill-current" />{" "}
+                  {mode === "demo-done" ? "Replay the demo" : "Watch the demo"}
                 </Button>
               </div>
             )}
-            {notice && <p className="max-w-xs text-[13px] text-white/50">{notice}</p>}
+            {notice && (
+              <p className="max-w-xs text-[13px] text-white/50">{notice}</p>
+            )}
           </div>
 
           <div className="mt-3 flex h-6 items-center justify-center">
@@ -537,7 +688,8 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
                   exit={{ opacity: 0 }}
                   className="max-w-[88vw] truncate font-mono text-[11px] text-white/35"
                 >
-                  <span className="text-rest/80">client tool</span> {lastTool.label}
+                  <span className="text-rest/80">client tool</span>{" "}
+                  {lastTool.label}
                 </motion.code>
               )}
             </AnimatePresence>
@@ -550,7 +702,10 @@ function SpoonTalkInner({ liveAvailable }: { liveAvailable: boolean }) {
           layout
           transition={{ type: "spring", stiffness: 140, damping: 24 }}
           aria-label="Today's spoon plan"
-          className={cn("panel relative z-10 w-full scroll-mt-6 rounded-[28px] p-5 sm:p-7", !started && "max-w-2xl")}
+          className={cn(
+            "panel relative z-10 w-full scroll-mt-6 rounded-[28px] p-5 sm:p-7",
+            !started && "max-w-2xl",
+          )}
         >
           <DayPlan day={day} d={d} />
         </motion.section>
