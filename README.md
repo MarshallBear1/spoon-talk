@@ -6,7 +6,7 @@ Built on [ElevenLabs Agents](https://elevenlabs.io/docs/eleven-agents/overview) 
 
 ![Spoon Talk: the ElevenLabs orb on the left, the live spoon plan on the right](docs/screenshot-desktop.png)
 
-> **Live demo:** TODO: add the Vercel URL here
+> **Live demo:** [spoon-talk.vercel.app](https://spoon-talk.vercel.app)
 >
 > Works with no API keys: press **Watch the demo** for a scripted conversation that drives the exact same model and UI.
 
