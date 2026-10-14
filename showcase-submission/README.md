@@ -1,7 +1,7 @@
 # Showcase submission
 
 Submitted as [ElevenLabs Showcase PR #110](https://github.com/elevenlabs/showcase/pull/110).
-The PR is a draft while live voice activation is pending.
+Live voice is configured with an authenticated ElevenLabs agent and eight client tools.
 
 Copy into a fork of https://github.com/elevenlabs/showcase:
 
