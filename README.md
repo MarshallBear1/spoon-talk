@@ -140,7 +140,7 @@ npx shadcn@4.21.1 add https://ui.elevenlabs.io/r/orb.json https://ui.elevenlabs.
 Requires Node 20.6+.
 
 ```bash
-git clone TODO-repo-url spoon-talk && cd spoon-talk
+git clone https://github.com/MarshallBear1/spoon-talk.git && cd spoon-talk
 npm install
 npm run dev     # http://localhost:3000: demo mode works straight away
 npm test        # model unit tests
